@@ -5,7 +5,7 @@ import decimal
 import json
 
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+
 import datetime
 
 import logging
@@ -24,31 +24,35 @@ HR_GEO_API = 'http://geoapi.heartrails.com/api/json?method=getPrefectures'
 TENKI_URL = 'https://tenki.jp/search/?keyword='
 
 # 連番を更新して返す関数
-def next_seq(table, tablename):
-    response = table.update_item(
-        Key={
-            'tablename' : tablename
-        },
-        UpdateExpression="set seq = seq + :val",
-        ExpressionAttributeValues= {
-            ':val' : 1
-        },
-        ReturnValues='UPDATED_NEW'
-    )
-    return response['Attributes']['seq']
+# def next_seq(table, tablename):
+#     response = table.update_item(
+#         Key={
+#             'tablename' : tablename
+#         },
+#         UpdateExpression="set seq = seq + :val",
+#         ExpressionAttributeValues= {
+#             ':val' : 1
+#         },
+#         ReturnValues='UPDATED_NEW'
+#     )
+#     return response['Attributes']['seq']
 
 # Lambda関数呼び出し時に最初に呼ばれる関数
 def lambda_handler(event, context):
     try:
-        # DynamoDBのテーブルインスタンス作成(sequenceテーブル)
-        seqtable = dynamodb.Table('sequence')
 
-        options = Options()
+        options = webdriver.ChromeOptions()
+        options.binary_location = "./bin/headless-chromium"
         options.add_argument('--headless')
+        options.add_argument("--no-sandbox")
+        options.add_argument("--single-process")
         #options.add_argument('--disable-gpu')
         #browser = webdriver.Chrome(options=options)
-        browser = webdriver.Chrome("./bin/chromedriver",chrome_options=options)
-
+        # browser = webdriver.Chrome("./bin/chromedriver",chrome_options=options)
+        browser = webdriver.Chrome(
+            "./bin/chromedriver",
+            chrome_options=options)
+ 
         #browser.implicitly_wait(5)
 
         # 見直し案
@@ -85,7 +89,7 @@ def lambda_handler(event, context):
                 townsWeatherValues = []
                 
                 city['postal'] = city['postal'][:3] + '-' + city['postal'][3:]
-                print(city['postal'])
+                # print(city['postal'])
 
                 # 郵便番号から該当ページのリンクを踏む
                 postalCode = city['postal']
@@ -146,12 +150,24 @@ def lambda_handler(event, context):
 
         # 取得した気象データをjson形式で保存
         #file = open('weather.json', 'w', 1, 'utf-8')
-        file = json.dumps(townsWeathers, indent=4, sort_keys=True, separators=(',', ': '))
+        files = json.dumps(townsWeathers, indent=4, sort_keys=True, separators=(',', ': '))
         #file = json.dump(townsWeathers, ensure_ascii=False, indent=4)
 
         # 取得した気象データをDynamoDBに一括保存する。
+        tablename = "weather"
+        table = dynamodb.Table(tablename)
+        with table.batch_writer() as batch:
+            for file in files:
+                batch.put_item(
+                    Item={
+                        'prefuctureName': file['prefuctureName']
+
+                    }
+                )
+
+
         obj = s3.Object(bucket,key)
-        obj.put(Body=file)
+        obj.put(Body=files)
 
         # 後始末
         browser.close()
